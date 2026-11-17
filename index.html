@@ -39,6 +39,7 @@
   }
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; }
 body {
   background: var(--bg); color: var(--fg); font: 16px/1.45 var(--font);
@@ -222,15 +223,21 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
 <dialog id="sendDlg">
   <div class="sheet">
     <h3>Send report</h3>
-    <div class="addr"><code id="toAddr"></code><button class="btn" id="copyAddr" type="button" style="flex:none">Copy</button></div>
-    <ol class="steps" id="shareSteps">
-      <li>Tap <strong>Share to email</strong> and pick Mail or Outlook. The map, photos and PDF go along.</li>
-      <li>Paste the help desk address into <strong>To</strong> (it's already copied).</li>
-      <li>Send.</li>
-    </ol>
-    <div class="row">
-      <button class="btn primary" id="shareBtn" type="button">Share to email</button>
-      <a class="btn" id="mailtoBtn" href="#">Open email (text only)</a>
+    <div class="addr"><span class="hint" style="flex:none">To</span><code id="toAddr"></code><button class="btn" id="copyAddr" type="button" style="flex:none">Copy</button></div>
+    <div id="autoBox" hidden>
+      <button class="btn primary" id="autoSendBtn" type="button" style="width:100%;padding:14px;font-size:16px">Send now</button>
+      <p class="hint" id="autoHint" style="margin-top:6px">Sends from your UNLV Gmail with the map and photos in the email and the PDF attached.</p>
+    </div>
+    <div id="manualBox">
+      <ol class="steps" id="shareSteps">
+        <li>Tap <strong>Share to email</strong> and pick Mail or Outlook. The map, photos and PDF go along.</li>
+        <li>Paste the help desk address into <strong>To</strong> (it's already copied).</li>
+        <li>Send.</li>
+      </ol>
+      <div class="row" style="margin-top:10px">
+        <button class="btn primary" id="shareBtn" type="button">Share to email</button>
+        <a class="btn" id="mailtoBtn" href="#">Open email (text only)</a>
+      </div>
     </div>
     <div class="preview" id="preview" aria-label="Email preview"></div>
     <p class="hint" id="attachList"></p>
@@ -238,8 +245,8 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
       <button class="btn" id="copyRich" type="button">Copy formatted email</button>
       <button class="btn" id="viewPdf" type="button">View PDF</button>
     </div>
-    <p class="hint">Copy formatted email gives you this version with the map and photos inside the text. Paste it over the email body if your mail app shows the pictures only as attachments.</p>
-    <div class="row">
+    <p class="hint" id="copyHint">Copy formatted email gives you this version with the map and photos inside the text. Paste it over the email body if your mail app shows the pictures only as attachments.</p>
+    <div class="row" id="markRow">
       <button class="btn" id="markSent" type="button">Sent. Start new report</button>
     </div>
     <button class="btn" id="closeSend" type="button">Back to edit</button>
@@ -257,6 +264,10 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
     <label for="sDept">Department <input type="text" id="sDept" autocomplete="organization"></label>
     <label for="sPhone">Callback phone <input type="tel" id="sPhone" autocomplete="tel"></label>
     <label for="sEmail">Your email <input type="email" id="sEmail" autocomplete="email"></label>
+    <h3 style="font-size:15px;margin-top:6px">Automatic sending</h3>
+    <p class="hint">Fill these in after setting up the Gmail script (see SETUP.md in the project). Leave blank to use Share to email.</p>
+    <label for="sUrl">Auto-send link <input type="url" id="sUrl" autocomplete="off" placeholder="https://script.google.com/macros/s/…/exec"></label>
+    <label for="sKey">Secret code <input type="text" id="sKey" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
     <div class="row"><button class="btn primary" value="save" type="submit">Save</button></div>
   </form>
 </dialog>
@@ -379,7 +390,7 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
   }
 
   let watchId = null, watchTimer = null;
-  function locate() {
+  function locate(quiet) {
     if (!('geolocation' in navigator)) { updateLocText('denied'); return; }
     stopWatch(); updateLocText('finding');
     let best = null;
@@ -395,7 +406,7 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
     }, err => {
       stopWatch();
       if (!loc) updateLocText('denied'); else updateLocText();
-      if (err.code === 1) toast('Location permission is off for this site. Tap the map instead.');
+      if (err.code === 1 && !quiet) toast('Location permission is off for this site. Tap the map instead.');
     }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
     watchTimer = setTimeout(stopWatch, 25000);
   }
@@ -422,7 +433,7 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
     fields.forEach(f => $(f).value = '');
     store.del('fm.draft');
     loc = null; if (pin) { map.removeLayer(pin); pin = null; } if (accCircle) { map.removeLayer(accCircle); accCircle = null; }
-    window.scrollTo({ top: 0 }); locate();
+    window.scrollTo({ top: 0 }); locate(true);
   }
   let newArmed = false;
   $('newBtn').onclick = () => {
@@ -466,7 +477,7 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
     return { subject, body: L.join('\n'), subjectRaw, bldg, desc, who, contact };
   }
   // rich HTML version (for pasting into the email body)
-  function composeHtml() {
+  function composeHtml(useCid) {
     const c = compose();
     const RED = '#B10F2E', MUTED = '#6A6366', LINE = '#E1DCDD';
     const h3 = t => `<p style="margin:18px 0 6px;font:bold 11px Arial,sans-serif;letter-spacing:1px;color:${RED};text-transform:uppercase;border-bottom:1px solid ${LINE};padding-bottom:4px">${t}</p>`;
@@ -478,12 +489,12 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
     if (c.bldg) H += `<p style="margin:0 0 4px"><b>${esc(c.bldg)}</b></p>`;
     if (loc) {
       H += `<p style="margin:0 0 8px"><a href="${mapsUrl()}" style="color:${RED}">Open pin in Google Maps</a> <span style="color:${MUTED};font-size:12px">(${loc.lat.toFixed(6)}, ${loc.lng.toFixed(6)} · ${esc(locSource())})</span></p>`;
-      if (lastSnap) H += `<a href="${mapsUrl()}"><img src="${lastSnap.dataUrl}" width="600" alt="Map with pin" style="width:100%;max-width:600px;height:auto;border:1px solid ${LINE};border-radius:4px;display:block"></a>`;
+      if (lastSnap) H += `<a href="${mapsUrl()}"><img src="${useCid ? 'cid:map' : lastSnap.dataUrl}" width="600" alt="Map with pin" style="width:100%;max-width:600px;height:auto;border:1px solid ${LINE};border-radius:4px;display:block"></a>`;
     } else if (!c.bldg) H += `<p style="margin:0;color:${MUTED}">Location not pinned</p>`;
     H += h3("What's wrong") + `<p style="margin:0;white-space:pre-wrap">${esc(c.desc)}</p>`;
     if (photos.length) {
       H += h3('Photos');
-      H += photos.map((p, i) => `<img src="${p.dataUrl}" alt="Photo ${i + 1}" width="290" style="width:290px;max-width:48%;height:auto;margin:0 6px 6px 0;border-radius:4px;vertical-align:top">`).join('');
+      H += photos.map((p, i) => `<img src="${useCid ? 'cid:photo' + (i + 1) : p.dataUrl}" alt="Photo ${i + 1}" width="290" style="width:290px;max-width:48%;height:auto;margin:0 6px 6px 0;border-radius:4px;vertical-align:top">`).join('');
     }
     H += `<p style="margin:16px 0 0;font-size:12px;color:${MUTED}">Report ${esc(reportId)} · ${esc(stamp())}${c.who ? '<br>Reported by ' + esc(c.who) : ''}${c.contact ? '<br>' + esc(c.contact) : ''}${pdfFile ? '<br>One-page PDF report attached for the ticket.' : ''}</p>`;
     H += `</div><p style="margin:12px 0 0">Thank you!</p></div>`;
@@ -694,8 +705,59 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
     $('mailtoBtn').textContent = canShareFiles ? 'Open email (text only)' : 'Open email';
     $('mailtoBtn').classList.toggle('primary', !canShareFiles);
     $('viewPdf').hidden = !pdfFile;
+    setSendMode(autoReady() ? 'auto' : 'manual');
     $('sendDlg').showModal();
-    if (!canShareFiles && files.length) toast('This browser can’t attach files to email directly. Use View PDF to save it, then attach.', 5000);
+    if (!autoReady() && !canShareFiles && files.length) toast('This browser can’t attach files to email directly. Use View PDF to save it, then attach.', 5000);
+  };
+
+  // ---------- automatic sending through the Gmail script ----------
+  function autoReady() { return /^https:\/\/script\.google(usercontent)?\.com\//.test(settings.hookUrl || '') && !!settings.hookKey; }
+  function setSendMode(mode) {
+    const auto = mode === 'auto';
+    $('autoBox').hidden = !auto;
+    $('manualBox').hidden = auto;
+    $('copyRich').hidden = auto; $('copyHint').hidden = auto; $('markRow').hidden = auto;
+    const b = $('autoSendBtn'); b.disabled = false; b.textContent = 'Send now';
+  }
+  async function blobToB64(blob) {
+    const buf = new Uint8Array(await blob.arrayBuffer()); let s = '';
+    for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+    return btoa(s);
+  }
+  const SEND_ERRORS = {
+    bad_secret: 'The secret code doesn’t match the Gmail script. Check it in Settings.',
+    recipient_not_allowed: 'The Gmail script only sends to the help desk or to you. Check “Send reports to” in Settings.'
+  };
+  $('autoSendBtn').onclick = async () => {
+    const b = $('autoSendBtn'); b.disabled = true; b.textContent = 'Sending…';
+    try {
+      const { subject, body } = compose();
+      const inline = [];
+      if (snapFile) inline.push({ cid: 'map', name: snapFile.name, type: 'image/jpeg', b64: await blobToB64(snapFile) });
+      const pf = photoFiles();
+      for (let i = 0; i < pf.length; i++) inline.push({ cid: 'photo' + (i + 1), name: pf[i].name, type: 'image/jpeg', b64: await blobToB64(pf[i]) });
+      const attachments = pdfFile ? [{ name: pdfFile.name, type: 'application/pdf', b64: await blobToB64(pdfFile) }] : [];
+      const payload = {
+        secret: settings.hookKey, to: settings.to, reportId, subject, text: body,
+        html: composeHtml(true).html, inline, attachments, fromName: settings.name || ''
+      };
+      const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 60000);
+      // text/plain keeps this a "simple" request, which Apps Script accepts cross-site
+      const res = await fetch(settings.hookUrl, { method: 'POST', body: JSON.stringify(payload), headers: { 'Content-Type': 'text/plain;charset=utf-8' }, redirect: 'follow', signal: ctrl.signal });
+      clearTimeout(t);
+      let out = null; try { out = await res.json(); } catch {}
+      if (!out || !out.ok) throw new Error((out && SEND_ERRORS[out.error]) || (out && out.error ? 'Gmail script error: ' + out.error : 'The Gmail script didn’t answer properly (HTTP ' + res.status + ').'));
+      const log = store.get('fm.log', []); log.unshift({ at: Date.now(), subject, to: settings.to, auto: true }); store.set('fm.log', log.slice(0, 50));
+      $('sendDlg').close(); resetAll();
+      toast('Sent ✓ to ' + settings.to, 4000);
+    } catch (e) {
+      const msg = e && e.name === 'AbortError' ? 'Sending timed out. Check your signal and try again.'
+        : (e && e.message && !/Failed to fetch|NetworkError|Load failed/i.test(e.message)) ? e.message
+        : 'Couldn’t reach the Gmail script. Check your signal, or use Share to email below.';
+      b.disabled = false; b.textContent = 'Try again';
+      $('manualBox').hidden = false;
+      toast(msg + ' Your report is still here.', 6000);
+    }
   };
   $('viewPdf').onclick = () => { if (pdfFile) window.open(URL.createObjectURL(pdfFile), '_blank'); };
   $('copyAddr').onclick = () => copyText(settings.to, 'Address copied.');
@@ -729,12 +791,15 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
   $('closeSend').onclick = () => $('sendDlg').close();
 
   // ---------- settings ----------
-  const sMap = { sTo: 'to', sName: 'name', sDept: 'dept', sPhone: 'phone', sEmail: 'email' };
+  const sMap = { sTo: 'to', sName: 'name', sDept: 'dept', sPhone: 'phone', sEmail: 'email', sUrl: 'hookUrl', sKey: 'hookKey' };
   $('settingsBtn').onclick = () => { Object.entries(sMap).forEach(([id, k]) => $(id).value = settings[k] || ''); $('settingsDlg').showModal(); };
   $('settingsForm').addEventListener('submit', () => {
     Object.entries(sMap).forEach(([id, k]) => settings[k] = $(id).value.trim());
     if (!settings.to) settings.to = DEFAULT_TO;
-    store.set('fm.settings', settings); toast('Settings saved.');
+    store.set('fm.settings', settings);
+    if (settings.hookUrl && !settings.hookKey) toast('Saved. Add the secret code too, or automatic sending stays off.', 4500);
+    else if (settings.hookUrl && !autoReady()) toast('Saved, but that auto-send link doesn’t look like a Google Apps Script web app URL.', 5000);
+    else toast(autoReady() ? 'Saved. Automatic sending is on.' : 'Settings saved.');
   });
   [$('sendDlg'), $('settingsDlg')].forEach(d => d.addEventListener('click', e => { if (e.target === d) d.close(); }));
 
