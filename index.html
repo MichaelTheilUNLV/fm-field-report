@@ -112,15 +112,6 @@ input:focus, textarea:focus, select:focus, button:focus-visible { outline: 2px s
 .seg button[aria-pressed=true] { background: var(--scarlet); color: #fff; }
 .coords { font-variant-numeric: tabular-nums; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
 
-/* priority chips */
-.chips { display: flex; gap: 8px; flex-wrap: wrap; }
-.chips input { position: absolute; opacity: 0; pointer-events: none; }
-.chips label {
-  font-size: 14px; color: var(--fg); font-weight: 600; padding: 8px 12px; border-radius: 999px;
-  border: 1px solid var(--line); background: var(--field); cursor: pointer; display: inline-flex;
-}
-.chips input:checked + span { color: inherit; }
-.chips label:has(input:checked) { background: var(--scarlet); border-color: var(--scarlet); color: #fff; }
 .emergency { font-size: 13px; color: var(--muted); margin: 0; }
 .emergency strong { color: var(--scarlet-ink); }
 
@@ -142,9 +133,10 @@ dialog::backdrop { background: rgba(0,0,0,.45); }
 .sheet { padding: 18px; display: grid; gap: 12px; }
 .sheet h3 { margin: 0; font-size: 18px; }
 .preview {
-  white-space: pre-wrap; font-size: 13px; background: var(--field); border: 1px solid var(--line);
-  border-radius: 10px; padding: 10px; max-height: 32vh; overflow: auto; margin: 0;
+  background: #fff; color: #1C1A1B; border: 1px solid var(--line);
+  border-radius: 10px; padding: 12px; max-height: 38vh; overflow: auto; margin: 0; min-width: 0;
 }
+.preview img { max-width: 100% !important; }
 .addr { display: flex; gap: 8px; align-items: center; }
 .addr code { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 14px; background: var(--field); padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); user-select: all; }
 ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4px; }
@@ -216,14 +208,6 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
     <label for="description">Description
       <textarea id="description" placeholder="What you see, how bad, and anything the tech should know (access, hazard, when it started)."></textarea>
     </label>
-    <div>
-      <span class="hint" style="display:block;margin-bottom:6px;font-weight:600">Priority</span>
-      <div class="chips" role="radiogroup" aria-label="Priority">
-        <label><input type="radio" name="priority" value="Routine" checked><span>Routine</span></label>
-        <label><input type="radio" name="priority" value="Soon (safety / comfort)"><span>Soon</span></label>
-        <label><input type="radio" name="priority" value="Urgent"><span>Urgent</span></label>
-      </div>
-    </div>
     <p class="emergency"><strong>Active leak, flooding, or safety hazard?</strong> Call the FM Help Desk at <a href="tel:7028954357">702-895-4357</a>. Life-threatening: call 911.</p>
   </section>
 </main>
@@ -240,19 +224,22 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
     <h3>Send report</h3>
     <div class="addr"><code id="toAddr"></code><button class="btn" id="copyAddr" type="button" style="flex:none">Copy</button></div>
     <ol class="steps" id="shareSteps">
-      <li>Tap <strong>Share PDF + photos</strong> and pick Outlook or Mail.</li>
+      <li>Tap <strong>Share to email</strong> and pick Mail or Outlook. The map, photos and PDF go along.</li>
       <li>Paste the help desk address into <strong>To</strong> (it's already copied).</li>
-      <li>Check the subject line, then send.</li>
+      <li>Send.</li>
     </ol>
-    <pre class="preview" id="preview"></pre>
-    <p class="hint" id="attachList"></p>
     <div class="row">
-      <button class="btn primary" id="shareBtn" type="button">Share PDF + photos</button>
-      <button class="btn" id="viewPdf" type="button">View PDF</button>
+      <button class="btn primary" id="shareBtn" type="button">Share to email</button>
       <a class="btn" id="mailtoBtn" href="#">Open email (text only)</a>
     </div>
+    <div class="preview" id="preview" aria-label="Email preview"></div>
+    <p class="hint" id="attachList"></p>
     <div class="row">
-      <button class="btn" id="copyBody" type="button">Copy report text</button>
+      <button class="btn" id="copyRich" type="button">Copy formatted email</button>
+      <button class="btn" id="viewPdf" type="button">View PDF</button>
+    </div>
+    <p class="hint">Copy formatted email gives you this version with the map and photos inside the text. Paste it over the email body if your mail app shows the pictures only as attachments.</p>
+    <div class="row">
       <button class="btn" id="markSent" type="button">Sent. Start new report</button>
     </div>
     <button class="btn" id="closeSend" type="button">Back to edit</button>
@@ -422,21 +409,17 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
   const fields = ['building', 'subject', 'description'];
   function saveDraft() {
     const d = {}; fields.forEach(f => d[f] = $(f).value);
-    d.priority = document.querySelector('input[name=priority]:checked').value;
     store.set('fm.draft', d);
   }
   function loadDraft() {
     const d = store.get('fm.draft', null); if (!d) return;
     fields.forEach(f => { if (d[f]) $(f).value = d[f]; });
-    const r = document.querySelector(`input[name=priority][value="${CSS.escape(d.priority || 'Routine')}"]`); if (r) r.checked = true;
   }
   fields.forEach(f => $(f).addEventListener('input', saveDraft));
-  document.querySelectorAll('input[name=priority]').forEach(r => r.addEventListener('change', saveDraft));
 
   function resetAll() {
     photos.forEach(p => URL.revokeObjectURL(p.url)); photos = []; renderThumbs();
     fields.forEach(f => $(f).value = '');
-    document.querySelector('input[name=priority][value=Routine]').checked = true;
     store.del('fm.draft');
     loc = null; if (pin) { map.removeLayer(pin); pin = null; } if (accCircle) { map.removeLayer(accCircle); accCircle = null; }
     window.scrollTo({ top: 0 }); locate();
@@ -452,34 +435,61 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
   function stamp() {
     return new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
   }
+  function esc(t) { return String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+  function mapsUrl() { return loc ? 'https://www.google.com/maps/search/?api=1&query=' + loc.lat.toFixed(6) + ',' + loc.lng.toFixed(6) : ''; }
+  function locSource() { return loc ? (loc.manual ? 'pin placed on map' : `GPS ±${Math.round(loc.acc)} m`) : ''; }
   function compose() {
     const subjectRaw = $('subject').value.trim() || 'Facilities issue';
     const bldg = $('building').value.trim();
-    const pri = document.querySelector('input[name=priority]:checked').value;
-    const subject = (pri === 'Urgent' ? '[URGENT] ' : '') + subjectRaw + (bldg ? ' – ' + bldg : '');
-    const L1 = [];
-    L1.push('Facilities issue report');
-    L1.push('Reported: ' + stamp());
-    L1.push('Priority: ' + pri);
-    L1.push('');
-    L1.push('LOCATION');
-    if (bldg) L1.push('Building/area: ' + bldg);
-    if (loc) {
-      const ll = loc.lat.toFixed(6) + ',' + loc.lng.toFixed(6);
-      L1.push('Map pin: https://www.google.com/maps/search/?api=1&query=' + ll);
-      L1.push('Coordinates: ' + ll + (loc.manual ? ' (placed on map)' : ` (GPS ±${Math.round(loc.acc)} m)`));
-    } else L1.push('Map pin: not set');
-    L1.push('');
-    L1.push('DESCRIPTION');
-    L1.push($('description').value.trim() || '(none)');
-    L1.push('');
-    L1.push('Photos attached: ' + photos.length);
+    const subject = subjectRaw + (bldg ? ' – ' + bldg : '');
+    const desc = $('description').value.trim() || '(no description)';
     const who = [settings.name, settings.dept].filter(Boolean).join(', ');
     const contact = [settings.phone, settings.email].filter(Boolean).join(' · ');
-    if (who || contact) { L1.push(''); L1.push('Reported by: ' + (who || '')); if (contact) L1.push('Contact: ' + contact); }
-    return { subject, body: L1.join('\n') };
+    const RULE = '────────────────────';
+    const L = [];
+    L.push('Hello Facilities Help Desk,', '', 'I would like to report the following issue:', '');
+    L.push(subjectRaw.toUpperCase(), RULE);
+    L.push('', 'WHERE');
+    if (bldg) L.push(bldg);
+    if (loc) { L.push('Map: ' + mapsUrl()); L.push(`(${loc.lat.toFixed(6)}, ${loc.lng.toFixed(6)} · ${locSource()})`); }
+    else if (!bldg) L.push('Location not pinned');
+    L.push('', "WHAT'S WRONG", desc);
+    const att = [];
+    if (snapFile) att.push('Map snapshot showing the pin');
+    if (photos.length) att.push(photos.length + (photos.length === 1 ? ' photo' : ' photos'));
+    if (pdfFile) att.push(`One-page PDF report for the ticket (${pdfFile.name})`);
+    if (att.length) { L.push('', 'ATTACHED'); att.forEach(a => L.push('• ' + a)); }
+    L.push('', RULE, `Report ${reportId || newReportId()} · ${stamp()}`);
+    if (who) L.push('Reported by ' + who);
+    if (contact) L.push(contact);
+    L.push('', 'Thank you!');
+    return { subject, body: L.join('\n'), subjectRaw, bldg, desc, who, contact };
   }
-  let reportId = null, pdfFile = null;
+  // rich HTML version (for pasting into the email body)
+  function composeHtml() {
+    const c = compose();
+    const RED = '#B10F2E', MUTED = '#6A6366', LINE = '#E1DCDD';
+    const h3 = t => `<p style="margin:18px 0 6px;font:bold 11px Arial,sans-serif;letter-spacing:1px;color:${RED};text-transform:uppercase;border-bottom:1px solid ${LINE};padding-bottom:4px">${t}</p>`;
+    let H = `<div style="font:14px/1.5 Arial,Helvetica,sans-serif;color:#1C1A1B;max-width:640px">`;
+    H += `<p style="margin:0 0 12px">Hello Facilities Help Desk,<br>I would like to report the following issue:</p>`;
+    H += `<div style="background:${RED};color:#fff;padding:12px 16px;border-radius:6px 6px 0 0"><div style="font:bold 10px Arial,sans-serif;letter-spacing:1px">UNLV FACILITIES · FIELD REPORT ${esc(reportId)}</div><div style="font:bold 18px Arial,sans-serif;margin-top:2px">${esc(c.subjectRaw)}</div></div>`;
+    H += `<div style="border:1px solid ${LINE};border-top:0;padding:4px 16px 16px;border-radius:0 0 6px 6px">`;
+    H += h3('Where');
+    if (c.bldg) H += `<p style="margin:0 0 4px"><b>${esc(c.bldg)}</b></p>`;
+    if (loc) {
+      H += `<p style="margin:0 0 8px"><a href="${mapsUrl()}" style="color:${RED}">Open pin in Google Maps</a> <span style="color:${MUTED};font-size:12px">(${loc.lat.toFixed(6)}, ${loc.lng.toFixed(6)} · ${esc(locSource())})</span></p>`;
+      if (lastSnap) H += `<a href="${mapsUrl()}"><img src="${lastSnap.dataUrl}" width="600" alt="Map with pin" style="width:100%;max-width:600px;height:auto;border:1px solid ${LINE};border-radius:4px;display:block"></a>`;
+    } else if (!c.bldg) H += `<p style="margin:0;color:${MUTED}">Location not pinned</p>`;
+    H += h3("What's wrong") + `<p style="margin:0;white-space:pre-wrap">${esc(c.desc)}</p>`;
+    if (photos.length) {
+      H += h3('Photos');
+      H += photos.map((p, i) => `<img src="${p.dataUrl}" alt="Photo ${i + 1}" width="290" style="width:290px;max-width:48%;height:auto;margin:0 6px 6px 0;border-radius:4px;vertical-align:top">`).join('');
+    }
+    H += `<p style="margin:16px 0 0;font-size:12px;color:${MUTED}">Report ${esc(reportId)} · ${esc(stamp())}${c.who ? '<br>Reported by ' + esc(c.who) : ''}${c.contact ? '<br>' + esc(c.contact) : ''}${pdfFile ? '<br>One-page PDF report attached for the ticket.' : ''}</p>`;
+    H += `</div><p style="margin:12px 0 0">Thank you!</p></div>`;
+    return { html: H, text: c.body };
+  }
+  let reportId = null, pdfFile = null, snapFile = null, lastSnap = null;
   function newReportId() {
     const d = new Date(), p = n => String(n).padStart(2, '0');
     return `FM-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
@@ -487,7 +497,9 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
   function photoFiles() {
     return photos.map((p, i) => new File([p.blob], `${reportId}-photo${i + 1}.jpg`, { type: 'image/jpeg' }));
   }
-  function allFiles() { return (pdfFile ? [pdfFile] : []).concat(photoFiles()); }
+  // order matters: Apple Mail shows images in the body in this order
+  function allFiles() { return (snapFile ? [snapFile] : []).concat(photoFiles(), pdfFile ? [pdfFile] : []); }
+  async function dataUrlToFile(dataUrl, name) { const b = await (await fetch(dataUrl)).blob(); return new File([b], name, { type: b.type || 'image/jpeg' }); }
 
   // ---------- static map snapshot for the PDF ----------
   function tileImg(url) {
@@ -542,7 +554,6 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
     const RED = [177, 15, 46], INK = [28, 26, 27], MUTED = [106, 99, 102], LINE = [225, 220, 221];
     const { subject } = compose();
     const bldg = $('building').value.trim();
-    const pri = document.querySelector('input[name=priority]:checked').value;
     const desc = $('description').value.trim() || '(none)';
 
     // header band
@@ -551,9 +562,8 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
     doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.text('UNLV FACILITIES MANAGEMENT', M, 24, { charSpace: 1 });
     doc.setFontSize(19); doc.text('Field Issue Report', M, 46);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
-    doc.text(reportId, PW - M, 24, { align: 'right' });
-    doc.text(stamp(), PW - M, 37, { align: 'right' });
-    doc.setFont('helvetica', 'bold'); doc.text('Priority: ' + pri, PW - M, 50, { align: 'right' });
+    doc.text(reportId, PW - M, 30, { align: 'right' });
+    doc.text(stamp(), PW - M, 45, { align: 'right' });
 
     let y = 86;
     doc.setTextColor(...INK); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
@@ -609,6 +619,7 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
 
     // map + photos share the rest of the page
     const snap = loc ? await mapSnapshot(loc.lat, loc.lng, 18, 900, 330) : null;
+    lastSnap = snap;
     const room = BOTTOM - y;
     const photoBlock = photos.length ? 17 : 0;              // title height
     let mapH = 0;
@@ -663,13 +674,17 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
     if (!$('subject').value.trim() && !$('description').value.trim()) { toast('Add a subject or description first.'); $('subject').focus(); return; }
     if (!loc) toast('Tip: no map pin set. The report will go without coordinates.', 3200);
     const btn = $('sendBtn'); btn.disabled = true; const label = btn.innerHTML; btn.lastChild.textContent = ' Building PDF…';
-    reportId = newReportId();
+    reportId = newReportId(); lastSnap = null;
     try { pdfFile = await buildPdf(); } catch (e) { console.error(e); pdfFile = null; }
+    snapFile = null;
+    if (!lastSnap && loc) { try { lastSnap = await mapSnapshot(loc.lat, loc.lng, 18, 900, 330); } catch {} }
+    if (!loc) lastSnap = null;
+    if (lastSnap) { try { snapFile = await dataUrlToFile(lastSnap.dataUrl, `${reportId}-map.jpg`); } catch {} }
     btn.disabled = false; btn.innerHTML = label;
     if (!pdfFile) toast('PDF could not be built. The email will still carry the text and photos.', 4000);
     const { subject, body } = compose();
     $('toAddr').textContent = settings.to;
-    $('preview').textContent = 'Subject: ' + subject + '\n\n' + body;
+    $('preview').innerHTML = '<p style="margin:0 0 10px;font:bold 13px Arial,sans-serif;color:#6A6366">Subject: ' + esc(subject) + '</p>' + composeHtml().html;
     $('mailtoBtn').href = 'mailto:' + encodeURIComponent(settings.to) + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
     const files = allFiles();
     const canShareFiles = files.length > 0 && navigator.canShare && navigator.canShare({ files });
@@ -684,12 +699,24 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
   };
   $('viewPdf').onclick = () => { if (pdfFile) window.open(URL.createObjectURL(pdfFile), '_blank'); };
   $('copyAddr').onclick = () => copyText(settings.to, 'Address copied.');
-  $('copyBody').onclick = () => { const { subject, body } = compose(); copyText('Subject: ' + subject + '\n\n' + body, 'Report text copied.'); };
+  $('copyRich').onclick = async () => {
+    const { html, text } = composeHtml();
+    try {
+      await navigator.clipboard.write([new ClipboardItem({
+        'text/html': new Blob([html], { type: 'text/html' }),
+        'text/plain': new Blob([text], { type: 'text/plain' })
+      })]);
+      toast('Formatted email copied. Paste it into the email body.');
+    } catch {
+      if (await copyText(text)) toast('Copied as plain text (this browser can’t copy the formatted version).', 4000);
+      else toast('Copy failed on this browser.');
+    }
+  };
   $('shareBtn').onclick = async () => {
     const { subject, body } = compose();
     await copyText(settings.to);                 // ready to paste into To:
     try {
-      await navigator.share({ title: subject, text: 'To: ' + settings.to + '\nSubject: ' + subject + '\n\n' + body, files: allFiles() });
+      await navigator.share({ title: subject, text: body, files: allFiles() });
       toast('Shared. Tap “Sent” once the email is out.');
     } catch (e) {
       if (e && e.name !== 'AbortError') toast('Sharing failed. Try Open email instead.');
