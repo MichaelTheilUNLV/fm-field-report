@@ -1,0 +1,716 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FM Field Report</title>
+<meta name="description" content="Snap photos, pin the spot, and send a facilities issue to the UNLV FM Help Desk.">
+<meta name="theme-color" content="#B10F2E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="FM Report">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+/* Layout: one scrolling column of numbered capture steps, sticky scarlet header, fixed send bar */
+:root {
+  --scarlet: #B10F2E;
+  --scarlet-ink: #8E0B24;
+  --bg: #F5F4F4;
+  --card: #FFFFFF;
+  --fg: #1C1A1B;
+  --muted: #6A6366;
+  --line: #E1DCDD;
+  --field: #FBFAFA;
+  --ok: #1D7A46;
+  --warn: #B25E00;
+  --radius: 14px;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --scarlet: #D8344F; --scarlet-ink: #F06A80; --bg: #141213; --card: #1F1C1D;
+    --fg: #F1EDEE; --muted: #A79FA2; --line: #342F31; --field: #191617;
+    --ok: #4CC184; --warn: #F0A24A; color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--fg); font: 16px/1.45 var(--font);
+  -webkit-text-size-adjust: 100%;
+  padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+}
+header {
+  position: sticky; top: 0; z-index: 1000;
+  background: var(--scarlet); color: #fff;
+  padding: calc(10px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) 10px max(16px, env(safe-area-inset-left, 0px));
+  display: flex; align-items: center; gap: 12px;
+}
+header h1 { font-size: 18px; margin: 0; letter-spacing: .01em; flex: 1; }
+header h1 small { display: block; font-weight: 500; font-size: 12px; opacity: .85; letter-spacing: .04em; text-transform: uppercase; }
+.icon-btn {
+  background: rgba(255,255,255,.16); color: #fff; border: 0; border-radius: 10px;
+  width: 40px; height: 40px; display: grid; place-items: center; cursor: pointer;
+}
+main {
+  max-width: 640px; margin: 0 auto;
+  padding: 14px max(16px, env(safe-area-inset-right, 0px)) 0 max(16px, env(safe-area-inset-left, 0px));
+  display: grid; gap: 14px;
+}
+section.card {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 14px; display: grid; gap: 10px; min-width: 0;
+}
+.step-head { display: flex; align-items: baseline; gap: 10px; }
+.step-head .n {
+  flex: none; width: 24px; height: 24px; border-radius: 50%; background: var(--scarlet); color: #fff;
+  font-size: 13px; font-weight: 700; display: grid; place-items: center; transform: translateY(3px);
+}
+.step-head h2 { font-size: 16px; margin: 0; flex: 1; }
+.step-head .meta { font-size: 13px; color: var(--muted); }
+label { font-size: 13px; font-weight: 600; color: var(--muted); display: grid; gap: 4px; }
+input[type=text], input[type=tel], input[type=email], textarea, select {
+  font: inherit; font-size: 16px; color: var(--fg); background: var(--field);
+  border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px; width: 100%;
+}
+textarea { min-height: 110px; resize: vertical; }
+input:focus, textarea:focus, select:focus, button:focus-visible { outline: 2px solid var(--scarlet); outline-offset: 1px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn {
+  font: inherit; font-weight: 600; font-size: 15px; border-radius: 11px; padding: 11px 14px;
+  border: 1px solid var(--line); background: var(--field); color: var(--fg); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex: 1 1 auto;
+  text-decoration: none;
+}
+.btn.primary { background: var(--scarlet); border-color: var(--scarlet); color: #fff; }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn svg { width: 18px; height: 18px; flex: none; }
+
+/* photos */
+.thumbs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.thumbs:empty { display: none; }
+.thumb { position: relative; aspect-ratio: 1; border-radius: 10px; overflow: hidden; background: var(--line); max-width: 100%; }
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb button {
+  position: absolute; top: 4px; right: 4px; width: 28px; height: 28px; border-radius: 50%;
+  border: 0; background: rgba(0,0,0,.6); color: #fff; font-size: 16px; line-height: 1; cursor: pointer;
+}
+.hint { font-size: 13px; color: var(--muted); margin: 0; }
+
+/* map */
+#map { height: 280px; border-radius: 10px; border: 1px solid var(--line); z-index: 0; }
+.loc-status { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.seg button { font: inherit; font-size: 13px; padding: 6px 10px; border: 0; background: var(--field); color: var(--fg); cursor: pointer; }
+.seg button[aria-pressed=true] { background: var(--scarlet); color: #fff; }
+.coords { font-variant-numeric: tabular-nums; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+
+/* priority chips */
+.chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.chips input { position: absolute; opacity: 0; pointer-events: none; }
+.chips label {
+  font-size: 14px; color: var(--fg); font-weight: 600; padding: 8px 12px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--field); cursor: pointer; display: inline-flex;
+}
+.chips input:checked + span { color: inherit; }
+.chips label:has(input:checked) { background: var(--scarlet); border-color: var(--scarlet); color: #fff; }
+.emergency { font-size: 13px; color: var(--muted); margin: 0; }
+.emergency strong { color: var(--scarlet-ink); }
+
+/* send bar */
+.sendbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 1000;
+  background: var(--card); border-top: 1px solid var(--line);
+  padding: 10px max(16px, env(safe-area-inset-right, 0px)) calc(10px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+}
+.sendbar .inner { max-width: 640px; margin: 0 auto; display: flex; gap: 8px; }
+.sendbar .btn.primary { flex: 3; font-size: 16px; padding: 13px; }
+
+/* sheets */
+dialog {
+  border: 0; border-radius: 18px; padding: 0; width: min(560px, calc(100% - 24px));
+  background: var(--card); color: var(--fg); max-height: 88vh;
+}
+dialog::backdrop { background: rgba(0,0,0,.45); }
+.sheet { padding: 18px; display: grid; gap: 12px; }
+.sheet h3 { margin: 0; font-size: 18px; }
+.preview {
+  white-space: pre-wrap; font-size: 13px; background: var(--field); border: 1px solid var(--line);
+  border-radius: 10px; padding: 10px; max-height: 32vh; overflow: auto; margin: 0;
+}
+.addr { display: flex; gap: 8px; align-items: center; }
+.addr code { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 14px; background: var(--field); padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); user-select: all; }
+ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4px; }
+
+#toast {
+  position: fixed; left: 50%; bottom: calc(90px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
+  background: var(--fg); color: var(--bg); padding: 10px 14px; border-radius: 10px; font-size: 14px;
+  z-index: 2000; max-width: calc(100% - 32px); box-shadow: 0 6px 20px rgba(0,0,0,.25);
+}
+@media (prefers-reduced-motion: no-preference) { #toast { transition: opacity .2s; } }
+</style>
+</head>
+<body>
+<header>
+  <h1><small>UNLV Facilities</small>Field Report</h1>
+  <button class="icon-btn" id="newBtn" aria-label="Start a new report" title="New report">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+  </button>
+  <button class="icon-btn" id="settingsBtn" aria-label="Settings" title="Settings">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+  </button>
+</header>
+
+<main>
+  <section class="card" aria-labelledby="h-photos">
+    <div class="step-head"><span class="n">1</span><h2 id="h-photos">Photos</h2><span class="meta" id="photoCount">0 of 6</span></div>
+    <div class="row">
+      <button class="btn primary" id="cameraBtn" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+        Take photo
+      </button>
+      <button class="btn" id="libraryBtn" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m3 16 5-5 4 4 3-3 6 6"/></svg>
+        From library
+      </button>
+    </div>
+    <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
+    <input type="file" id="libraryInput" accept="image/*" multiple hidden>
+    <div class="thumbs" id="thumbs"></div>
+    <p class="hint">Photos are resized to keep the email small. Get one wide shot for context and one close-up.</p>
+  </section>
+
+  <section class="card" aria-labelledby="h-loc">
+    <div class="step-head"><span class="n">2</span><h2 id="h-loc">Location</h2>
+      <div class="seg" role="group" aria-label="Map style">
+        <button type="button" id="layerStreet" aria-pressed="true">Map</button>
+        <button type="button" id="layerSat" aria-pressed="false">Satellite</button>
+      </div>
+    </div>
+    <div id="map" role="application" aria-label="Map. Tap to place the pin."></div>
+    <div class="loc-status"><span class="dot" id="locDot"></span><span id="locText">Finding your location…</span></div>
+    <div class="row">
+      <button class="btn" id="locateBtn" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+        Use my location
+      </button>
+    </div>
+    <p class="hint">Tap the map or drag the pin to the exact spot.</p>
+    <label for="building">Building / room / area <span style="font-weight:400">(optional)</span>
+      <input type="text" id="building" placeholder="e.g. BEH 2nd floor, east stairwell" autocomplete="off">
+    </label>
+  </section>
+
+  <section class="card" aria-labelledby="h-details">
+    <div class="step-head"><span class="n">3</span><h2 id="h-details">What's wrong</h2></div>
+    <label for="subject">Subject
+      <input type="text" id="subject" placeholder="e.g. Ceiling tile stained / leaking" maxlength="120" autocomplete="off">
+    </label>
+    <label for="description">Description
+      <textarea id="description" placeholder="What you see, how bad, and anything the tech should know (access, hazard, when it started)."></textarea>
+    </label>
+    <div>
+      <span class="hint" style="display:block;margin-bottom:6px;font-weight:600">Priority</span>
+      <div class="chips" role="radiogroup" aria-label="Priority">
+        <label><input type="radio" name="priority" value="Routine" checked><span>Routine</span></label>
+        <label><input type="radio" name="priority" value="Soon (safety / comfort)"><span>Soon</span></label>
+        <label><input type="radio" name="priority" value="Urgent"><span>Urgent</span></label>
+      </div>
+    </div>
+    <p class="emergency"><strong>Active leak, flooding, or safety hazard?</strong> Call the FM Help Desk at <a href="tel:7028954357">702-895-4357</a>. Life-threatening: call 911.</p>
+  </section>
+</main>
+
+<div class="sendbar"><div class="inner">
+  <button class="btn primary" id="sendBtn" type="button">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>
+    Send to Help Desk
+  </button>
+</div></div>
+
+<dialog id="sendDlg">
+  <div class="sheet">
+    <h3>Send report</h3>
+    <div class="addr"><code id="toAddr"></code><button class="btn" id="copyAddr" type="button" style="flex:none">Copy</button></div>
+    <ol class="steps" id="shareSteps">
+      <li>Tap <strong>Share PDF + photos</strong> and pick Outlook or Mail.</li>
+      <li>Paste the help desk address into <strong>To</strong> (it's already copied).</li>
+      <li>Check the subject line, then send.</li>
+    </ol>
+    <pre class="preview" id="preview"></pre>
+    <p class="hint" id="attachList"></p>
+    <div class="row">
+      <button class="btn primary" id="shareBtn" type="button">Share PDF + photos</button>
+      <button class="btn" id="viewPdf" type="button">View PDF</button>
+      <a class="btn" id="mailtoBtn" href="#">Open email (text only)</a>
+    </div>
+    <div class="row">
+      <button class="btn" id="copyBody" type="button">Copy report text</button>
+      <button class="btn" id="markSent" type="button">Sent. Start new report</button>
+    </div>
+    <button class="btn" id="closeSend" type="button">Back to edit</button>
+  </div>
+</dialog>
+
+<dialog id="settingsDlg">
+  <form class="sheet" method="dialog" id="settingsForm">
+    <h3>Settings</h3>
+    <p class="hint">Saved on this phone only and added to the bottom of every report.</p>
+    <label for="sTo">Send reports to
+      <input type="email" id="sTo" autocomplete="off">
+    </label>
+    <label for="sName">Your name <input type="text" id="sName" autocomplete="name"></label>
+    <label for="sDept">Department <input type="text" id="sDept" autocomplete="organization"></label>
+    <label for="sPhone">Callback phone <input type="tel" id="sPhone" autocomplete="tel"></label>
+    <label for="sEmail">Your email <input type="email" id="sEmail" autocomplete="email"></label>
+    <div class="row"><button class="btn primary" value="save" type="submit">Save</button></div>
+  </form>
+</dialog>
+
+<div id="toast" hidden></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const DEFAULT_TO = 'facilities_help_desk@unlv.edu';
+  const CAMPUS = [36.1076, -115.1410];   // UNLV main campus, Maryland Pkwy
+  const MAX_PHOTOS = 6, MAX_EDGE = 1600, JPEG_Q = 0.8;
+
+  // ---------- storage helpers ----------
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+    del(k) { try { localStorage.removeItem(k); } catch {} }
+  };
+  let settings = Object.assign({ to: DEFAULT_TO, name: '', dept: '', phone: '', email: '' }, store.get('fm.settings', {}));
+
+  function toast(msg, ms = 2600) {
+    const t = $('toast'); t.textContent = msg; t.hidden = false;
+    clearTimeout(toast.h); toast.h = setTimeout(() => t.hidden = true, ms);
+  }
+
+  // ---------- photos ----------
+  let photos = []; // {blob, url, name}
+  function renderThumbs() {
+    const box = $('thumbs'); box.innerHTML = '';
+    photos.forEach((p, i) => {
+      const d = document.createElement('div'); d.className = 'thumb';
+      const img = document.createElement('img'); img.src = p.url; img.alt = 'Photo ' + (i + 1);
+      const x = document.createElement('button'); x.type = 'button'; x.textContent = '×'; x.setAttribute('aria-label', 'Remove photo ' + (i + 1));
+      x.onclick = () => { URL.revokeObjectURL(p.url); photos.splice(i, 1); renderThumbs(); };
+      d.append(img, x); box.append(d);
+    });
+    $('photoCount').textContent = photos.length + ' of ' + MAX_PHOTOS;
+    const full = photos.length >= MAX_PHOTOS;
+    $('cameraBtn').disabled = full; $('libraryBtn').disabled = full;
+  }
+  function loadImage(file) {
+    return new Promise((res, rej) => {
+      const url = URL.createObjectURL(file); const img = new Image();
+      img.onload = () => res({ img, url }); img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('Could not read image')); };
+      img.src = url;
+    });
+  }
+  async function shrink(file) {
+    const { img, url } = await loadImage(file);
+    const scale = Math.min(1, MAX_EDGE / Math.max(img.naturalWidth, img.naturalHeight));
+    const w = Math.round(img.naturalWidth * scale), h = Math.round(img.naturalHeight * scale);
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    c.getContext('2d').drawImage(img, 0, 0, w, h);
+    URL.revokeObjectURL(url);
+    const blob = await new Promise(res => c.toBlob(b => res(b), 'image/jpeg', JPEG_Q));
+    return { blob, w, h, dataUrl: c.toDataURL('image/jpeg', JPEG_Q) };
+  }
+  async function addFiles(fileList) {
+    const files = [...fileList].slice(0, MAX_PHOTOS - photos.length);
+    for (const f of files) {
+      try {
+        const s = await shrink(f);
+        if (!s.blob) throw new Error('encode');
+        photos.push({ ...s, url: URL.createObjectURL(s.blob) });
+      } catch { toast('One photo could not be read. Try taking it again.'); }
+    }
+    renderThumbs();
+  }
+  $('cameraBtn').onclick = () => $('cameraInput').click();
+  $('libraryBtn').onclick = () => $('libraryInput').click();
+  ['cameraInput', 'libraryInput'].forEach(id => $(id).addEventListener('change', e => { addFiles(e.target.files); e.target.value = ''; }));
+
+  // ---------- map ----------
+  const map = L.map('map', { zoomControl: true, attributionControl: true }).setView(CAMPUS, 16);
+  const street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+  const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 20, maxNativeZoom: 19, attribution: 'Imagery &copy; Esri'
+  });
+  function setLayer(which) {
+    const s = which === 'sat';
+    if (s) { map.removeLayer(street); sat.addTo(map); } else { map.removeLayer(sat); street.addTo(map); }
+    $('layerSat').setAttribute('aria-pressed', s); $('layerStreet').setAttribute('aria-pressed', !s);
+    store.set('fm.layer', which);
+  }
+  $('layerStreet').onclick = () => setLayer('street');
+  $('layerSat').onclick = () => setLayer('sat');
+  if (store.get('fm.layer') === 'sat') setLayer('sat');
+
+  const pinIcon = L.divIcon({
+    className: '', iconSize: [34, 44], iconAnchor: [17, 42],
+    html: '<svg width="34" height="44" viewBox="0 0 34 44"><path d="M17 43C17 43 32 26.5 32 16.5A15 15 0 0 0 2 16.5C2 26.5 17 43 17 43Z" fill="#B10F2E" stroke="#fff" stroke-width="2.5"/><circle cx="17" cy="16.5" r="5.5" fill="#fff"/></svg>'
+  });
+  let pin = null, accCircle = null, loc = null; // loc = {lat,lng,acc,manual}
+  function setPin(lat, lng, acc, manual) {
+    loc = { lat, lng, acc, manual };
+    if (!pin) {
+      pin = L.marker([lat, lng], { draggable: true, icon: pinIcon, autoPan: true }).addTo(map);
+      pin.on('dragend', () => { const p = pin.getLatLng(); setPin(p.lat, p.lng, null, true); });
+    } else pin.setLatLng([lat, lng]);
+    if (accCircle) { map.removeLayer(accCircle); accCircle = null; }
+    if (acc && !manual) accCircle = L.circle([lat, lng], { radius: acc, color: '#B10F2E', weight: 1, fillOpacity: .08, interactive: false }).addTo(map);
+    updateLocText();
+  }
+  map.on('click', e => setPin(e.latlng.lat, e.latlng.lng, null, true));
+
+  function updateLocText(state) {
+    const dot = $('locDot'), t = $('locText');
+    dot.className = 'dot';
+    if (state === 'finding') { t.textContent = 'Finding your location…'; return; }
+    if (state === 'denied') { dot.classList.add('warn'); t.textContent = 'Location is off. Tap the map to drop the pin.'; return; }
+    if (!loc) { t.textContent = 'Tap the map to drop the pin.'; return; }
+    const c = `<span class="coords">${loc.lat.toFixed(6)}, ${loc.lng.toFixed(6)}</span>`;
+    if (loc.manual) { dot.classList.add('ok'); t.innerHTML = 'Pin placed by you · ' + c; }
+    else { dot.classList.add(loc.acc <= 20 ? 'ok' : 'warn'); t.innerHTML = `GPS ±${Math.round(loc.acc)} m · ${c}`; }
+  }
+
+  let watchId = null, watchTimer = null;
+  function locate() {
+    if (!('geolocation' in navigator)) { updateLocText('denied'); return; }
+    stopWatch(); updateLocText('finding');
+    let best = null;
+    watchId = navigator.geolocation.watchPosition(p => {
+      const { latitude, longitude, accuracy } = p.coords;
+      if (loc && loc.manual && best) return;            // user took over
+      if (!best || accuracy < best.accuracy) {
+        best = { latitude, longitude, accuracy };
+        setPin(latitude, longitude, accuracy, false);
+        map.setView([latitude, longitude], Math.max(map.getZoom(), accuracy < 40 ? 18 : 17));
+      }
+      if (accuracy <= 10) stopWatch();
+    }, err => {
+      stopWatch();
+      if (!loc) updateLocText('denied'); else updateLocText();
+      if (err.code === 1) toast('Location permission is off for this site. Tap the map instead.');
+    }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
+    watchTimer = setTimeout(stopWatch, 25000);
+  }
+  function stopWatch() {
+    if (watchId != null) navigator.geolocation.clearWatch(watchId);
+    watchId = null; clearTimeout(watchTimer);
+  }
+  $('locateBtn').onclick = () => { if (loc) loc.manual = false; locate(); };
+
+  // ---------- draft (text only) ----------
+  const fields = ['building', 'subject', 'description'];
+  function saveDraft() {
+    const d = {}; fields.forEach(f => d[f] = $(f).value);
+    d.priority = document.querySelector('input[name=priority]:checked').value;
+    store.set('fm.draft', d);
+  }
+  function loadDraft() {
+    const d = store.get('fm.draft', null); if (!d) return;
+    fields.forEach(f => { if (d[f]) $(f).value = d[f]; });
+    const r = document.querySelector(`input[name=priority][value="${CSS.escape(d.priority || 'Routine')}"]`); if (r) r.checked = true;
+  }
+  fields.forEach(f => $(f).addEventListener('input', saveDraft));
+  document.querySelectorAll('input[name=priority]').forEach(r => r.addEventListener('change', saveDraft));
+
+  function resetAll() {
+    photos.forEach(p => URL.revokeObjectURL(p.url)); photos = []; renderThumbs();
+    fields.forEach(f => $(f).value = '');
+    document.querySelector('input[name=priority][value=Routine]').checked = true;
+    store.del('fm.draft');
+    loc = null; if (pin) { map.removeLayer(pin); pin = null; } if (accCircle) { map.removeLayer(accCircle); accCircle = null; }
+    window.scrollTo({ top: 0 }); locate();
+  }
+  let newArmed = false;
+  $('newBtn').onclick = () => {
+    const hasWork = photos.length || fields.some(f => $(f).value.trim());
+    if (hasWork && !newArmed) { newArmed = true; toast('Tap + again to clear this report.'); setTimeout(() => newArmed = false, 3000); return; }
+    newArmed = false; resetAll(); toast('New report started.');
+  };
+
+  // ---------- compose ----------
+  function stamp() {
+    return new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+  }
+  function compose() {
+    const subjectRaw = $('subject').value.trim() || 'Facilities issue';
+    const bldg = $('building').value.trim();
+    const pri = document.querySelector('input[name=priority]:checked').value;
+    const subject = (pri === 'Urgent' ? '[URGENT] ' : '') + subjectRaw + (bldg ? ' – ' + bldg : '');
+    const L1 = [];
+    L1.push('Facilities issue report');
+    L1.push('Reported: ' + stamp());
+    L1.push('Priority: ' + pri);
+    L1.push('');
+    L1.push('LOCATION');
+    if (bldg) L1.push('Building/area: ' + bldg);
+    if (loc) {
+      const ll = loc.lat.toFixed(6) + ',' + loc.lng.toFixed(6);
+      L1.push('Map pin: https://www.google.com/maps/search/?api=1&query=' + ll);
+      L1.push('Coordinates: ' + ll + (loc.manual ? ' (placed on map)' : ` (GPS ±${Math.round(loc.acc)} m)`));
+    } else L1.push('Map pin: not set');
+    L1.push('');
+    L1.push('DESCRIPTION');
+    L1.push($('description').value.trim() || '(none)');
+    L1.push('');
+    L1.push('Photos attached: ' + photos.length);
+    const who = [settings.name, settings.dept].filter(Boolean).join(', ');
+    const contact = [settings.phone, settings.email].filter(Boolean).join(' · ');
+    if (who || contact) { L1.push(''); L1.push('Reported by: ' + (who || '')); if (contact) L1.push('Contact: ' + contact); }
+    return { subject, body: L1.join('\n') };
+  }
+  let reportId = null, pdfFile = null;
+  function newReportId() {
+    const d = new Date(), p = n => String(n).padStart(2, '0');
+    return `FM-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
+  }
+  function photoFiles() {
+    return photos.map((p, i) => new File([p.blob], `${reportId}-photo${i + 1}.jpg`, { type: 'image/jpeg' }));
+  }
+  function allFiles() { return (pdfFile ? [pdfFile] : []).concat(photoFiles()); }
+
+  // ---------- static map snapshot for the PDF ----------
+  function tileImg(url) {
+    return new Promise(res => {
+      const im = new Image(); im.crossOrigin = 'anonymous';
+      const t = setTimeout(() => res(null), 6000);
+      im.onload = () => { clearTimeout(t); res(im); }; im.onerror = () => { clearTimeout(t); res(null); };
+      im.src = url;
+    });
+  }
+  async function mapSnapshot(lat, lng, z = 18, W = 900, H = 420) {
+    const n = 256 * 2 ** z;
+    const px = (lng + 180) / 360 * n;
+    const s = Math.sin(lat * Math.PI / 180);
+    const py = (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n;
+    const x0 = px - W / 2, y0 = py - H / 2;
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const g = c.getContext('2d'); g.fillStyle = '#e8e4e5'; g.fillRect(0, 0, W, H);
+    const useSat = store.get('fm.layer') === 'sat';
+    const jobs = [];
+    for (let tx = Math.floor(x0 / 256); tx <= Math.floor((x0 + W) / 256); tx++)
+      for (let ty = Math.floor(y0 / 256); ty <= Math.floor((y0 + H) / 256); ty++) {
+        const url = useSat
+          ? `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${ty}/${tx}`
+          : `https://tile.openstreetmap.org/${z}/${tx}/${ty}.png`;
+        jobs.push(tileImg(url).then(im => { if (im) g.drawImage(im, tx * 256 - x0, ty * 256 - y0); return !!im; }));
+      }
+    const ok = (await Promise.all(jobs)).filter(Boolean).length;
+    if (!ok) return null;
+    // pin
+    const cx = W / 2, cy = H / 2;
+    g.fillStyle = '#B10F2E'; g.strokeStyle = '#fff'; g.lineWidth = 4;
+    g.beginPath(); g.moveTo(cx, cy);
+    g.bezierCurveTo(cx - 6, cy - 14, cx - 22, cy - 26, cx - 22, cy - 42);
+    g.arc(cx, cy - 42, 22, Math.PI, 0);
+    g.bezierCurveTo(cx + 22, cy - 26, cx + 6, cy - 14, cx, cy);
+    g.closePath(); g.fill(); g.stroke();
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(cx, cy - 42, 8, 0, 2 * Math.PI); g.fill();
+    g.font = '13px sans-serif'; g.fillStyle = 'rgba(255,255,255,.85)';
+    const attr = useSat ? 'Imagery © Esri' : '© OpenStreetMap contributors';
+    const tw = g.measureText(attr).width; g.fillRect(W - tw - 12, H - 20, tw + 12, 20);
+    g.fillStyle = '#333'; g.fillText(attr, W - tw - 6, H - 6);
+    try { return { dataUrl: c.toDataURL('image/jpeg', 0.85), w: W, h: H }; } catch { return null; }
+  }
+
+  // ---------- PDF report ----------
+  async function buildPdf() {
+    if (!window.jspdf) return null;
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+    const PW = 612, PH = 792, M = 42, CW = PW - 2 * M;
+    const RED = [177, 15, 46], INK = [28, 26, 27], MUTED = [106, 99, 102], LINE = [225, 220, 221];
+    const { subject } = compose();
+    const bldg = $('building').value.trim();
+    const pri = document.querySelector('input[name=priority]:checked').value;
+    const desc = $('description').value.trim() || '(none)';
+    let y = 0;
+
+    const header = (cont) => {
+      doc.setFillColor(...RED); doc.rect(0, 0, PW, cont ? 46 : 92, 'F');
+      doc.setTextColor(255, 255, 255);
+      if (cont) {
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.text('Field Issue Report (continued)', M, 29);
+        doc.setFont('helvetica', 'normal'); doc.text(reportId, PW - M, 29, { align: 'right' });
+        return 72;
+      }
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.text('UNLV FACILITIES MANAGEMENT', M, 32, { charSpace: 1 });
+      doc.setFontSize(22); doc.text('Field Issue Report', M, 60);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+      doc.text(reportId, PW - M, 40, { align: 'right' });
+      doc.text(stamp(), PW - M, 56, { align: 'right' });
+      if (pri !== 'Routine') {
+        doc.setFont('helvetica', 'bold'); doc.text('PRIORITY: ' + pri.toUpperCase(), PW - M, 72, { align: 'right' });
+      }
+      return 122;
+    };
+    const ensure = (need) => { if (y + need > PH - 50) { doc.addPage(); y = header(true); } };
+    const sectionTitle = (t) => {
+      ensure(40);
+      doc.setTextColor(...RED); doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
+      doc.text(t.toUpperCase(), M, y, { charSpace: .8 });
+      doc.setDrawColor(...LINE); doc.setLineWidth(.8); doc.line(M, y + 6, PW - M, y + 6);
+      y += 22;
+    };
+    const kv = (k, v, link) => {
+      doc.setFontSize(10.5);
+      const lines = doc.splitTextToSize(v, CW - 120);
+      ensure(lines.length * 14 + 4);
+      doc.setFont('helvetica', 'bold'); doc.setTextColor(...MUTED); doc.text(k, M, y);
+      doc.setFont('helvetica', 'normal'); doc.setTextColor(...(link ? RED : INK));
+      if (link) doc.textWithLink(lines[0], M + 120, y, { url: link }); else doc.text(lines, M + 120, y);
+      y += lines.length * 14 + 4;
+    };
+
+    y = header(false);
+    // subject
+    doc.setTextColor(...INK); doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
+    const subjLines = doc.splitTextToSize($('subject').value.trim() || 'Facilities issue', CW);
+    doc.text(subjLines, M, y); y += subjLines.length * 20 + 10;
+
+    sectionTitle('Location');
+    if (bldg) kv('Building / area', bldg);
+    if (loc) {
+      const ll = loc.lat.toFixed(6) + ', ' + loc.lng.toFixed(6);
+      kv('Coordinates', ll + (loc.manual ? '  (placed on map)' : `  (GPS ±${Math.round(loc.acc)} m)`));
+      const gm = 'https://www.google.com/maps/search/?api=1&query=' + loc.lat.toFixed(6) + ',' + loc.lng.toFixed(6);
+      kv('Google Maps', 'Open pin in Google Maps', gm);
+      const snap = await mapSnapshot(loc.lat, loc.lng);
+      if (snap) {
+        const h = CW * snap.h / snap.w; ensure(h + 16);
+        doc.addImage(snap.dataUrl, 'JPEG', M, y, CW, h);
+        doc.setDrawColor(...LINE); doc.rect(M, y, CW, h);
+        y += h + 18;
+      }
+    } else kv('Map pin', 'Not set');
+
+    sectionTitle('Description');
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(11); doc.setTextColor(...INK);
+    for (const line of doc.splitTextToSize(desc, CW)) { ensure(16); doc.text(line, M, y); y += 15; }
+    y += 10;
+
+    sectionTitle('Report details');
+    kv('Report ID', reportId);
+    kv('Date / time', stamp());
+    kv('Priority', pri);
+    kv('Photos', String(photos.length));
+    const who = [settings.name, settings.dept].filter(Boolean).join(', ');
+    if (who) kv('Reported by', who);
+    if (settings.phone) kv('Phone', settings.phone);
+    if (settings.email) kv('Email', settings.email);
+
+    if (photos.length) {
+      doc.addPage(); y = header(true);
+      sectionTitle('Photos');
+      const colW = (CW - 14) / 2, maxH = 300;
+      for (let i = 0; i < photos.length; i += 2) {
+        const pair = photos.slice(i, i + 2).map(p => {
+          let w = colW, h = colW * p.h / p.w; if (h > maxH) { h = maxH; w = maxH * p.w / p.h; }
+          return { p, w, h };
+        });
+        const rowH = Math.max(...pair.map(o => o.h)) + 22;
+        ensure(rowH);
+        pair.forEach((o, j) => {
+          const x = M + j * (colW + 14) + (colW - o.w) / 2;
+          doc.addImage(o.p.dataUrl, 'JPEG', x, y, o.w, o.h);
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...MUTED);
+          doc.text(`Photo ${i + j + 1} of ${photos.length}`, M + j * (colW + 14), y + o.h + 13);
+        });
+        y += rowH + 6;
+      }
+    }
+
+    const pages = doc.getNumberOfPages();
+    for (let i = 1; i <= pages; i++) {
+      doc.setPage(i); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(...MUTED);
+      doc.text(`${reportId}  ·  ${subject}`.slice(0, 110), M, PH - 24);
+      doc.text(`Page ${i} of ${pages}`, PW - M, PH - 24, { align: 'right' });
+    }
+    return new File([doc.output('blob')], `${reportId}.pdf`, { type: 'application/pdf' });
+  }
+
+  async function copyText(text, okMsg) {
+    try { await navigator.clipboard.writeText(text); if (okMsg) toast(okMsg); return true; }
+    catch { return false; }
+  }
+
+  // ---------- send flow ----------
+  $('sendBtn').onclick = async () => {
+    if (!$('subject').value.trim() && !$('description').value.trim()) { toast('Add a subject or description first.'); $('subject').focus(); return; }
+    if (!loc) toast('Tip: no map pin set. The report will go without coordinates.', 3200);
+    const btn = $('sendBtn'); btn.disabled = true; const label = btn.innerHTML; btn.lastChild.textContent = ' Building PDF…';
+    reportId = newReportId();
+    try { pdfFile = await buildPdf(); } catch (e) { console.error(e); pdfFile = null; }
+    btn.disabled = false; btn.innerHTML = label;
+    if (!pdfFile) toast('PDF could not be built. The email will still carry the text and photos.', 4000);
+    const { subject, body } = compose();
+    $('toAddr').textContent = settings.to;
+    $('preview').textContent = 'Subject: ' + subject + '\n\n' + body;
+    $('mailtoBtn').href = 'mailto:' + encodeURIComponent(settings.to) + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+    const files = allFiles();
+    const canShareFiles = files.length > 0 && navigator.canShare && navigator.canShare({ files });
+    $('shareBtn').hidden = !canShareFiles;
+    $('shareSteps').hidden = !canShareFiles;
+    $('attachList').textContent = files.length ? 'Attachments: ' + files.map(f => f.name).join(', ') : '';
+    $('mailtoBtn').textContent = canShareFiles ? 'Open email (text only)' : 'Open email';
+    $('mailtoBtn').classList.toggle('primary', !canShareFiles);
+    $('viewPdf').hidden = !pdfFile;
+    $('sendDlg').showModal();
+    if (!canShareFiles && files.length) toast('This browser can’t attach files to email directly. Use View PDF to save it, then attach.', 5000);
+  };
+  $('viewPdf').onclick = () => { if (pdfFile) window.open(URL.createObjectURL(pdfFile), '_blank'); };
+  $('copyAddr').onclick = () => copyText(settings.to, 'Address copied.');
+  $('copyBody').onclick = () => { const { subject, body } = compose(); copyText('Subject: ' + subject + '\n\n' + body, 'Report text copied.'); };
+  $('shareBtn').onclick = async () => {
+    const { subject, body } = compose();
+    await copyText(settings.to);                 // ready to paste into To:
+    try {
+      await navigator.share({ title: subject, text: 'To: ' + settings.to + '\nSubject: ' + subject + '\n\n' + body, files: allFiles() });
+      toast('Shared. Tap “Sent” once the email is out.');
+    } catch (e) {
+      if (e && e.name !== 'AbortError') toast('Sharing failed. Try Open email instead.');
+    }
+  };
+  $('markSent').onclick = () => {
+    const log = store.get('fm.log', []); log.unshift({ at: Date.now(), subject: compose().subject }); store.set('fm.log', log.slice(0, 50));
+    $('sendDlg').close(); resetAll(); toast('Logged as sent. Ready for the next one.');
+  };
+  $('closeSend').onclick = () => $('sendDlg').close();
+
+  // ---------- settings ----------
+  const sMap = { sTo: 'to', sName: 'name', sDept: 'dept', sPhone: 'phone', sEmail: 'email' };
+  $('settingsBtn').onclick = () => { Object.entries(sMap).forEach(([id, k]) => $(id).value = settings[k] || ''); $('settingsDlg').showModal(); };
+  $('settingsForm').addEventListener('submit', () => {
+    Object.entries(sMap).forEach(([id, k]) => settings[k] = $(id).value.trim());
+    if (!settings.to) settings.to = DEFAULT_TO;
+    store.set('fm.settings', settings); toast('Settings saved.');
+  });
+  [$('sendDlg'), $('settingsDlg')].forEach(d => d.addEventListener('click', e => { if (e.target === d) d.close(); }));
+
+  // ---------- boot ----------
+  loadDraft(); renderThumbs(); locate();
+  if (!settings.name) setTimeout(() => toast('Tip: add your name and phone in Settings (gear icon).', 3500), 1200);
+})();
+</script>
+</body>
+</html>
