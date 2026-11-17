@@ -479,26 +479,64 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
   }
   // rich HTML version (for pasting into the email body)
   function composeHtml(useCid) {
+    // Laid out like the one-page PDF: red header band, subject, Description, Location | Reported by, map, photo grid.
     const c = compose();
-    const RED = '#B10F2E', MUTED = '#6A6366', LINE = '#E1DCDD';
-    const h3 = t => `<p style="margin:18px 0 6px;font:bold 11px Arial,sans-serif;letter-spacing:1px;color:${RED};text-transform:uppercase;border-bottom:1px solid ${LINE};padding-bottom:4px">${t}</p>`;
-    let H = `<div style="font:14px/1.5 Arial,Helvetica,sans-serif;color:#1C1A1B;max-width:640px">`;
-    H += `<p style="margin:0 0 12px">Hello Facilities Help Desk,<br>I would like to report the following issue:</p>`;
-    H += `<div style="background:${RED};color:#fff;padding:12px 16px;border-radius:6px 6px 0 0"><div style="font:bold 10px Arial,sans-serif;letter-spacing:1px">UNLV FACILITIES · FIELD REPORT ${esc(reportId)}</div><div style="font:bold 18px Arial,sans-serif;margin-top:2px">${esc(c.subjectRaw)}</div></div>`;
-    H += `<div style="border:1px solid ${LINE};border-top:0;padding:4px 16px 16px;border-radius:0 0 6px 6px">`;
-    H += h3("What's wrong") + `<p style="margin:0;white-space:pre-wrap">${esc(c.desc)}</p>`;
-    H += h3('Where');
-    if (c.bldg) H += `<p style="margin:0 0 4px"><b>${esc(c.bldg)}</b></p>`;
+    const RED = '#B10F2E', INK = '#1C1A1B', MUTED = '#6A6366', LINE = '#E1DCDD';
+    const F = 'Helvetica,Arial,sans-serif';
+    const title = t => `<div style="font:bold 11px ${F};letter-spacing:1px;color:${RED};text-transform:uppercase;border-bottom:1px solid ${LINE};padding-bottom:4px;margin:0 0 8px">${t}</div>`;
+    const kv = rows => `<table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;font:13px/1.45 ${F}">` +
+      rows.map(([k, v]) => `<tr><td style="padding:0 10px 4px 0;vertical-align:top;width:86px;font-weight:bold;color:${MUTED};white-space:nowrap">${k}</td><td style="padding:0 0 4px;vertical-align:top;color:${INK}">${v}</td></tr>`).join('') + `</table>`;
+    const locRows = [];
+    if (c.bldg) locRows.push(['Building', esc(c.bldg)]);
     if (loc) {
-      H += `<p style="margin:0 0 8px"><a href="${mapsUrl()}" style="color:${RED}">Open pin in Google Maps</a> <span style="color:${MUTED};font-size:12px">(${loc.lat.toFixed(6)}, ${loc.lng.toFixed(6)} · ${esc(locSource())})</span></p>`;
-      if (lastSnap) H += `<a href="${mapsUrl()}"><img src="${useCid ? 'cid:map' : lastSnap.dataUrl}" width="600" alt="Map with pin" style="width:100%;max-width:600px;height:auto;border:1px solid ${LINE};border-radius:4px;display:block"></a>`;
-    } else if (!c.bldg) H += `<p style="margin:0;color:${MUTED}">Location not pinned</p>`;
+      locRows.push(['Coordinates', loc.lat.toFixed(6) + ', ' + loc.lng.toFixed(6)]);
+      locRows.push(['Source', loc.manual ? 'Placed on map' : `GPS ±${Math.round(loc.acc)} m`]);
+      locRows.push(['Google Maps', `<a href="${mapsUrl()}" style="color:${RED}">Open pin in Google Maps</a>`]);
+    } else locRows.push(['Map pin', 'Not set']);
+    const whoRows = [];
+    if (settings.name) whoRows.push(['Name', esc(settings.name)]);
+    if (settings.dept) whoRows.push(['Department', esc(settings.dept)]);
+    if (settings.phone) whoRows.push(['Phone', esc(settings.phone)]);
+    if (settings.email) whoRows.push(['Email', `<a href="mailto:${esc(settings.email)}" style="color:${INK}">${esc(settings.email)}</a>`]);
+    whoRows.push(['Photos', String(photos.length)]);
+
+    let H = `<div style="font:14px/1.5 ${F};color:${INK};max-width:640px">`;
+    H += `<p style="margin:0 0 12px">Hello Facilities Help Desk,<br>I would like to report the following issue:</p>`;
+    H += `<table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;max-width:640px;border:1px solid ${LINE}">`;
+    // header band
+    H += `<tr><td style="background:${RED};color:#fff;padding:14px 18px"><table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%"><tr>` +
+      `<td style="vertical-align:bottom;color:#fff"><div style="font:bold 10px ${F};letter-spacing:1.5px">UNLV FACILITIES MANAGEMENT</div><div style="font:bold 22px/1.2 ${F};margin-top:3px">Field Issue Report</div></td>` +
+      `<td style="vertical-align:bottom;text-align:right;color:#fff;font:12px/1.5 ${F};white-space:nowrap">${esc(reportId)}<br>${esc(stamp())}</td>` +
+      `</tr></table></td></tr>`;
+    H += `<tr><td style="padding:16px 18px 18px">`;
+    H += `<div style="font:bold 18px/1.3 ${F};color:${INK};margin:0 0 14px">${esc(c.subjectRaw)}</div>`;
+    H += title('Description') + `<div style="font:14px/1.5 ${F};white-space:pre-wrap;margin:0 0 16px">${esc(c.desc)}</div>`;
+    // two columns (stack on narrow screens via inline-block)
+    H += `<div style="font-size:0;margin:0 0 6px">` +
+      `<div style="display:inline-block;vertical-align:top;width:100%;max-width:290px;margin:0 20px 10px 0;font-size:14px">${title('Location')}${kv(locRows)}</div>` +
+      `<div style="display:inline-block;vertical-align:top;width:100%;max-width:290px;margin:0 0 10px;font-size:14px">${title('Reported by')}${kv(whoRows)}</div>` +
+      `</div>`;
+    if (loc && lastSnap) H += `<a href="${mapsUrl()}" style="display:block;margin:0 0 16px"><img src="${useCid ? 'cid:map' : lastSnap.dataUrl}" width="602" alt="Map with pin" style="width:100%;max-width:602px;height:auto;border:1px solid ${LINE};display:block"></a>`;
     if (photos.length) {
-      H += h3('Photos');
-      H += photos.map((p, i) => `<img src="${useCid ? 'cid:photo' + (i + 1) : p.dataUrl}" alt="Photo ${i + 1}" width="290" style="width:290px;max-width:48%;height:auto;margin:0 6px 6px 0;border-radius:4px;vertical-align:top">`).join('');
+      H += title('Photos');
+      const cols = photos.length === 1 ? 1 : 2, w = cols === 1 ? 602 : 295;
+      H += `<table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%">`;
+      for (let i = 0; i < photos.length; i += cols) {
+        H += '<tr>';
+        for (let j = i; j < i + cols; j++) {
+          const p = photos[j];
+          H += `<td style="width:${100 / cols}%;vertical-align:top;padding:0 ${j % cols === 0 && cols > 1 ? 6 : 0}px 8px ${j % cols === 1 ? 6 : 0}px">` +
+            (p ? `<img src="${useCid ? 'cid:photo' + (j + 1) : p.dataUrl}" alt="Photo ${j + 1}" width="${w}" style="width:100%;max-width:${w}px;height:auto;display:block"><div style="font:11px ${F};color:${MUTED};margin-top:3px">Photo ${j + 1}</div>` : '') +
+            `</td>`;
+        }
+        H += '</tr>';
+      }
+      H += `</table>`;
     }
-    H += `<p style="margin:16px 0 0;font-size:12px;color:${MUTED}">Report ${esc(reportId)} · ${esc(stamp())}${c.who ? '<br>Reported by ' + esc(c.who) : ''}${c.contact ? '<br>' + esc(c.contact) : ''}${pdfFile ? '<br>One-page PDF report attached for the ticket.' : ''}</p>`;
-    H += `</div><p style="margin:12px 0 0">Thank you!</p></div>`;
+    H += `</td></tr>`;
+    // footer line, like the PDF's
+    H += `<tr><td style="border-top:1px solid ${LINE};padding:8px 18px;font:11px ${F};color:${MUTED}">${esc(reportId)} · ${esc(c.subject)}${pdfFile ? ` · One-page PDF attached for the ticket` : ''}</td></tr>`;
+    H += `</table><p style="margin:12px 0 0">Thank you!</p></div>`;
     return { html: H, text: c.body };
   }
   let reportId = null, pdfFile = null, snapFile = null, lastSnap = null;
