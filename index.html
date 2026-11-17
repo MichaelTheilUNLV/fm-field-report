@@ -227,6 +227,7 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
     <div id="autoBox" hidden>
       <button class="btn primary" id="autoSendBtn" type="button" style="width:100%;padding:14px;font-size:16px">Send now</button>
       <p class="hint" id="autoHint" style="margin-top:6px">Sends from your UNLV Gmail with the map and photos in the email and the PDF attached.</p>
+      <p id="autoErr" role="alert" hidden style="margin:6px 0 0;font-size:14px;font-weight:600;color:var(--scarlet-ink)"></p>
     </div>
     <div id="manualBox">
       <ol class="steps" id="shareSteps">
@@ -718,6 +719,7 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
     $('manualBox').hidden = auto;
     $('copyRich').hidden = auto; $('copyHint').hidden = auto; $('markRow').hidden = auto;
     const b = $('autoSendBtn'); b.disabled = false; b.textContent = 'Send now';
+    $('autoErr').hidden = true;
   }
   async function blobToB64(blob) {
     const buf = new Uint8Array(await blob.arrayBuffer()); let s = '';
@@ -726,7 +728,7 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
   }
   const SEND_ERRORS = {
     bad_secret: 'The secret code doesn’t match the Gmail script. Check it in Settings.',
-    recipient_not_allowed: 'The Gmail script only sends to the help desk or to you. Check “Send reports to” in Settings.'
+    recipient_not_allowed: 'The Gmail script only sends to the help desk or to your UNLV address. To test with another address, add it to ALLOWED_TO in the script and deploy a new version.'
   };
   $('autoSendBtn').onclick = async () => {
     const b = $('autoSendBtn'); b.disabled = true; b.textContent = 'Sending…';
@@ -746,17 +748,18 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
       const res = await fetch(settings.hookUrl, { method: 'POST', body: JSON.stringify(payload), headers: { 'Content-Type': 'text/plain;charset=utf-8' }, redirect: 'follow', signal: ctrl.signal });
       clearTimeout(t);
       let out = null; try { out = await res.json(); } catch {}
-      if (!out || !out.ok) throw new Error((out && SEND_ERRORS[out.error]) || (out && out.error ? 'Gmail script error: ' + out.error : 'The Gmail script didn’t answer properly (HTTP ' + res.status + ').'));
+      if (!out || !out.ok) throw new Error((out && SEND_ERRORS[out.error]) || (out && out.error ? 'Gmail script error: ' + out.error : 'The Gmail script didn’t answer properly (HTTP ' + res.status + '). Check that “Who has access” is Anyone and that the link ends in /exec.'));
       const log = store.get('fm.log', []); log.unshift({ at: Date.now(), subject, to: settings.to, auto: true }); store.set('fm.log', log.slice(0, 50));
       $('sendDlg').close(); resetAll();
       toast('Sent ✓ to ' + settings.to, 4000);
     } catch (e) {
       const msg = e && e.name === 'AbortError' ? 'Sending timed out. Check your signal and try again.'
         : (e && e.message && !/Failed to fetch|NetworkError|Load failed/i.test(e.message)) ? e.message
-        : 'Couldn’t reach the Gmail script. Check your signal, or use Share to email below.';
+        : 'Couldn’t reach the Gmail script. Check your signal, the Auto-send link in Settings, and that the deployment’s “Who has access” is Anyone.';
       b.disabled = false; b.textContent = 'Try again';
       $('manualBox').hidden = false;
-      toast(msg + ' Your report is still here.', 6000);
+      $('autoErr').textContent = 'Not sent: ' + msg; $('autoErr').hidden = false;
+      toast('Not sent. Your report is still here.', 4000);
     }
   };
   $('viewPdf').onclick = () => { if (pdfFile) window.open(URL.createObjectURL(pdfFile), '_blank'); };
