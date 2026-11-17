@@ -533,119 +533,123 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
     try { return { dataUrl: c.toDataURL('image/jpeg', 0.85), w: W, h: H }; } catch { return null; }
   }
 
-  // ---------- PDF report ----------
+  // ---------- PDF report (single page) ----------
   async function buildPdf() {
     if (!window.jspdf) return null;
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: 'pt', format: 'letter' });
-    const PW = 612, PH = 792, M = 42, CW = PW - 2 * M;
+    const PW = 612, PH = 792, M = 36, CW = PW - 2 * M, BOTTOM = PH - 34;
     const RED = [177, 15, 46], INK = [28, 26, 27], MUTED = [106, 99, 102], LINE = [225, 220, 221];
     const { subject } = compose();
     const bldg = $('building').value.trim();
     const pri = document.querySelector('input[name=priority]:checked').value;
     const desc = $('description').value.trim() || '(none)';
-    let y = 0;
 
-    const header = (cont) => {
-      doc.setFillColor(...RED); doc.rect(0, 0, PW, cont ? 46 : 92, 'F');
-      doc.setTextColor(255, 255, 255);
-      if (cont) {
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.text('Field Issue Report (continued)', M, 29);
-        doc.setFont('helvetica', 'normal'); doc.text(reportId, PW - M, 29, { align: 'right' });
-        return 72;
+    // header band
+    doc.setFillColor(...RED); doc.rect(0, 0, PW, 62, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.text('UNLV FACILITIES MANAGEMENT', M, 24, { charSpace: 1 });
+    doc.setFontSize(19); doc.text('Field Issue Report', M, 46);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
+    doc.text(reportId, PW - M, 24, { align: 'right' });
+    doc.text(stamp(), PW - M, 37, { align: 'right' });
+    doc.setFont('helvetica', 'bold'); doc.text('Priority: ' + pri, PW - M, 50, { align: 'right' });
+
+    let y = 86;
+    doc.setTextColor(...INK); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
+    const subjLines = doc.splitTextToSize($('subject').value.trim() || 'Facilities issue', CW).slice(0, 2);
+    doc.text(subjLines, M, y); y += subjLines.length * 17 + 4;
+
+    const title = (t, x, yy, w) => {
+      doc.setTextColor(...RED); doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5);
+      doc.text(t.toUpperCase(), x, yy, { charSpace: .8 });
+      doc.setDrawColor(...LINE); doc.setLineWidth(.7); doc.line(x, yy + 4, x + w, yy + 4);
+      return yy + 17;
+    };
+    // two columns: location | reported by
+    const colW = (CW - 20) / 2, LBL = 66;
+    const kvCol = (x, yy, rows) => {
+      doc.setFontSize(9);
+      for (const [k, v, link] of rows) {
+        const lines = doc.splitTextToSize(v, colW - LBL).slice(0, 2);
+        doc.setFont('helvetica', 'bold'); doc.setTextColor(...MUTED); doc.text(k, x, yy);
+        doc.setFont('helvetica', 'normal'); doc.setTextColor(...(link ? RED : INK));
+        if (link) doc.textWithLink(lines[0], x + LBL, yy, { url: link }); else doc.text(lines, x + LBL, yy);
+        yy += lines.length * 11.5 + 2;
       }
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.text('UNLV FACILITIES MANAGEMENT', M, 32, { charSpace: 1 });
-      doc.setFontSize(22); doc.text('Field Issue Report', M, 60);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-      doc.text(reportId, PW - M, 40, { align: 'right' });
-      doc.text(stamp(), PW - M, 56, { align: 'right' });
-      if (pri !== 'Routine') {
-        doc.setFont('helvetica', 'bold'); doc.text('PRIORITY: ' + pri.toUpperCase(), PW - M, 72, { align: 'right' });
-      }
-      return 122;
+      return yy;
     };
-    const ensure = (need) => { if (y + need > PH - 50) { doc.addPage(); y = header(true); } };
-    const sectionTitle = (t) => {
-      ensure(40);
-      doc.setTextColor(...RED); doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
-      doc.text(t.toUpperCase(), M, y, { charSpace: .8 });
-      doc.setDrawColor(...LINE); doc.setLineWidth(.8); doc.line(M, y + 6, PW - M, y + 6);
-      y += 22;
-    };
-    const kv = (k, v, link) => {
-      doc.setFontSize(10.5);
-      const lines = doc.splitTextToSize(v, CW - 120);
-      ensure(lines.length * 14 + 4);
-      doc.setFont('helvetica', 'bold'); doc.setTextColor(...MUTED); doc.text(k, M, y);
-      doc.setFont('helvetica', 'normal'); doc.setTextColor(...(link ? RED : INK));
-      if (link) doc.textWithLink(lines[0], M + 120, y, { url: link }); else doc.text(lines, M + 120, y);
-      y += lines.length * 14 + 4;
-    };
-
-    y = header(false);
-    // subject
-    doc.setTextColor(...INK); doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
-    const subjLines = doc.splitTextToSize($('subject').value.trim() || 'Facilities issue', CW);
-    doc.text(subjLines, M, y); y += subjLines.length * 20 + 10;
-
-    sectionTitle('Location');
-    if (bldg) kv('Building / area', bldg);
+    const locRows = [];
+    if (bldg) locRows.push(['Building', bldg]);
     if (loc) {
       const ll = loc.lat.toFixed(6) + ', ' + loc.lng.toFixed(6);
-      kv('Coordinates', ll + (loc.manual ? '  (placed on map)' : `  (GPS ±${Math.round(loc.acc)} m)`));
-      const gm = 'https://www.google.com/maps/search/?api=1&query=' + loc.lat.toFixed(6) + ',' + loc.lng.toFixed(6);
-      kv('Google Maps', 'Open pin in Google Maps', gm);
-      const snap = await mapSnapshot(loc.lat, loc.lng);
-      if (snap) {
-        const h = CW * snap.h / snap.w; ensure(h + 16);
-        doc.addImage(snap.dataUrl, 'JPEG', M, y, CW, h);
-        doc.setDrawColor(...LINE); doc.rect(M, y, CW, h);
-        y += h + 18;
-      }
-    } else kv('Map pin', 'Not set');
+      locRows.push(['Coordinates', ll]);
+      locRows.push(['Source', loc.manual ? 'Placed on map' : `GPS ±${Math.round(loc.acc)} m`]);
+      locRows.push(['Google Maps', 'Open pin in Google Maps', 'https://www.google.com/maps/search/?api=1&query=' + loc.lat.toFixed(6) + ',' + loc.lng.toFixed(6)]);
+    } else locRows.push(['Map pin', 'Not set']);
+    const whoRows = [];
+    if (settings.name) whoRows.push(['Name', settings.name]);
+    if (settings.dept) whoRows.push(['Department', settings.dept]);
+    if (settings.phone) whoRows.push(['Phone', settings.phone]);
+    if (settings.email) whoRows.push(['Email', settings.email]);
+    whoRows.push(['Photos', String(photos.length)]);
+    const yL = kvCol(M, title('Location', M, y, colW), locRows);
+    const xR = M + colW + 20;
+    const yR = kvCol(xR, title('Reported by', xR, y, colW), whoRows);
+    y = Math.max(yL, yR) + 6;
 
-    sectionTitle('Description');
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(11); doc.setTextColor(...INK);
-    for (const line of doc.splitTextToSize(desc, CW)) { ensure(16); doc.text(line, M, y); y += 15; }
-    y += 10;
+    // description
+    y = title('Description', M, y, CW);
+    doc.setFont('helvetica', 'normal'); doc.setTextColor(...INK);
+    let fs = 10, lines;
+    for (; fs >= 8; fs -= 0.5) { doc.setFontSize(fs); lines = doc.splitTextToSize(desc, CW); if (lines.length * fs * 1.3 <= 170) break; }
+    const lh = fs * 1.3, maxLines = Math.floor(170 / lh);
+    if (lines.length > maxLines) { lines = lines.slice(0, maxLines); lines[maxLines - 1] = lines[maxLines - 1].replace(/\s*\S*$/, ' …'); }
+    doc.text(lines, M, y); y += lines.length * lh + 8;
 
-    sectionTitle('Report details');
-    kv('Report ID', reportId);
-    kv('Date / time', stamp());
-    kv('Priority', pri);
-    kv('Photos', String(photos.length));
-    const who = [settings.name, settings.dept].filter(Boolean).join(', ');
-    if (who) kv('Reported by', who);
-    if (settings.phone) kv('Phone', settings.phone);
-    if (settings.email) kv('Email', settings.email);
+    // map + photos share the rest of the page
+    const snap = loc ? await mapSnapshot(loc.lat, loc.lng, 18, 900, 330) : null;
+    const room = BOTTOM - y;
+    const photoBlock = photos.length ? 17 : 0;              // title height
+    let mapH = 0;
+    if (snap) mapH = Math.min(CW * snap.h / snap.w, photos.length ? Math.max(110, room * 0.36) : room - 10);
+    if (snap) {
+      const mapW = Math.min(CW, mapH * snap.w / snap.h);
+      doc.addImage(snap.dataUrl, 'JPEG', M + (CW - mapW) / 2, y, mapW, mapH);
+      doc.setDrawColor(...LINE); doc.rect(M + (CW - mapW) / 2, y, mapW, mapH);
+      y += mapH + 12;
+    }
 
     if (photos.length) {
-      doc.addPage(); y = header(true);
-      sectionTitle('Photos');
-      const colW = (CW - 14) / 2, maxH = 300;
-      for (let i = 0; i < photos.length; i += 2) {
-        const pair = photos.slice(i, i + 2).map(p => {
-          let w = colW, h = colW * p.h / p.w; if (h > maxH) { h = maxH; w = maxH * p.w / p.h; }
-          return { p, w, h };
+      y = title('Photos', M, y, CW);
+      const availH = BOTTOM - y, gap = 8, cap = 11;
+      // pick the column count that makes photos largest while fitting the space
+      let best = null;
+      for (let cols = 1; cols <= photos.length; cols++) {
+        const rows = Math.ceil(photos.length / cols);
+        const cellW = (CW - gap * (cols - 1)) / cols;
+        const cellH = (availH - rows * cap - gap * (rows - 1)) / rows;
+        if (cellH <= 20) continue;
+        const area = photos.reduce((a, p) => {
+          let w = cellW, h = cellW * p.h / p.w; if (h > cellH) { h = cellH; w = cellH * p.w / p.h; } return a + w * h;
+        }, 0);
+        if (!best || area > best.area) best = { cols, rows, cellW, cellH, area };
+      }
+      if (best) {
+        photos.forEach((p, i) => {
+          const c = i % best.cols, r = Math.floor(i / best.cols);
+          let w = best.cellW, h = best.cellW * p.h / p.w; if (h > best.cellH) { h = best.cellH; w = best.cellH * p.w / p.h; }
+          const cx = M + c * (best.cellW + gap), cy = y + r * (best.cellH + cap + gap);
+          doc.addImage(p.dataUrl, 'JPEG', cx + (best.cellW - w) / 2, cy, w, h);
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...MUTED);
+          doc.text(`Photo ${i + 1}`, cx + (best.cellW - w) / 2, cy + h + 8.5);
         });
-        const rowH = Math.max(...pair.map(o => o.h)) + 22;
-        ensure(rowH);
-        pair.forEach((o, j) => {
-          const x = M + j * (colW + 14) + (colW - o.w) / 2;
-          doc.addImage(o.p.dataUrl, 'JPEG', x, y, o.w, o.h);
-          doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...MUTED);
-          doc.text(`Photo ${i + j + 1} of ${photos.length}`, M + j * (colW + 14), y + o.h + 13);
-        });
-        y += rowH + 6;
       }
     }
 
-    const pages = doc.getNumberOfPages();
-    for (let i = 1; i <= pages; i++) {
-      doc.setPage(i); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(...MUTED);
-      doc.text(`${reportId}  ·  ${subject}`.slice(0, 110), M, PH - 24);
-      doc.text(`Page ${i} of ${pages}`, PW - M, PH - 24, { align: 'right' });
-    }
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...MUTED);
+    doc.text(`${reportId}  ·  ${subject}`.slice(0, 120), M, PH - 18);
+    doc.text('Page 1 of 1', PW - M, PH - 18, { align: 'right' });
     return new File([doc.output('blob')], `${reportId}.pdf`, { type: 'application/pdf' });
   }
 
