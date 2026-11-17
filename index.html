@@ -682,18 +682,14 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
   }
 
   // ---------- send flow ----------
-  $('sendBtn').onclick = async () => {
-    if (!$('subject').value.trim() && !$('description').value.trim()) { toast('Add a subject or description first.'); $('subject').focus(); return; }
-    if (!loc) toast('Tip: no map pin set. The report will go without coordinates.', 3200);
-    const btn = $('sendBtn'); btn.disabled = true; const label = btn.innerHTML; btn.lastChild.textContent = ' Building PDF…';
+  // Builds the PDF, map image and email for the current report, and fills in the send sheet.
+  async function prepareReport() {
     reportId = newReportId(); lastSnap = null;
     try { pdfFile = await buildPdf(); } catch (e) { console.error(e); pdfFile = null; }
     snapFile = null;
     if (!lastSnap && loc) { try { lastSnap = await mapSnapshot(loc.lat, loc.lng, 18, 900, 330); } catch {} }
     if (!loc) lastSnap = null;
     if (lastSnap) { try { snapFile = await dataUrlToFile(lastSnap.dataUrl, `${reportId}-map.jpg`); } catch {} }
-    btn.disabled = false; btn.innerHTML = label;
-    if (!pdfFile) toast('PDF could not be built. The email will still carry the text and photos.', 4000);
     const { subject, body } = compose();
     $('toAddr').textContent = settings.to;
     $('preview').innerHTML = '<p style="margin:0 0 10px;font:bold 13px Arial,sans-serif;color:#6A6366">Subject: ' + esc(subject) + '</p>' + composeHtml().html;
@@ -706,9 +702,37 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
     $('mailtoBtn').textContent = canShareFiles ? 'Open email (text only)' : 'Open email';
     $('mailtoBtn').classList.toggle('primary', !canShareFiles);
     $('viewPdf').hidden = !pdfFile;
-    setSendMode(autoReady() ? 'auto' : 'manual');
+    return { canShareFiles, files };
+  }
+
+  function sendLabel() {
+    const to = (settings.to || '').toLowerCase();
+    return to === DEFAULT_TO ? 'Send to Help Desk' : 'Send to ' + settings.to;
+  }
+  function setSendBtn(text, busy) {
+    const btn = $('sendBtn'); btn.disabled = !!busy; btn.lastChild.textContent = ' ' + (text || sendLabel());
+  }
+
+  $('sendBtn').onclick = async () => {
+    if (!$('subject').value.trim() && !$('description').value.trim()) { toast('Add a subject or description first.'); $('subject').focus(); return; }
+    setSendBtn('Preparing report…', true);
+    const { canShareFiles, files } = await prepareReport();
+    if (autoReady()) {
+      // One tap: send straight away; the sheet only appears if something goes wrong.
+      setSendBtn('Sending…', true);
+      const r = await sendAuto();
+      setSendBtn();
+      if (r.ok) { finishSent(); return; }
+      setSendMode('auto');
+      showSendError(r.msg);
+      $('sendDlg').showModal();
+      return;
+    }
+    setSendBtn();
+    if (!pdfFile) toast('PDF could not be built. The email will still carry the text and photos.', 4000);
+    setSendMode('manual');
     $('sendDlg').showModal();
-    if (!autoReady() && !canShareFiles && files.length) toast('This browser can’t attach files to email directly. Use View PDF to save it, then attach.', 5000);
+    if (!canShareFiles && files.length) toast('This browser can’t attach files to email directly. Use View PDF to save it, then attach.', 5000);
   };
 
   // ---------- automatic sending through the Gmail script ----------
@@ -721,6 +745,18 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
     const b = $('autoSendBtn'); b.disabled = false; b.textContent = 'Send now';
     $('autoErr').hidden = true;
   }
+  function showSendError(msg) {
+    const b = $('autoSendBtn'); b.disabled = false; b.textContent = 'Try again';
+    $('manualBox').hidden = false;
+    $('autoErr').textContent = 'Not sent: ' + msg; $('autoErr').hidden = false;
+  }
+  function finishSent() {
+    const log = store.get('fm.log', []); log.unshift({ at: Date.now(), subject: compose().subject, to: settings.to, auto: true }); store.set('fm.log', log.slice(0, 50));
+    if ($('sendDlg').open) $('sendDlg').close();
+    const to = settings.to;
+    resetAll();
+    toast('Sent ✓ to ' + to, 4000);
+  }
   async function blobToB64(blob) {
     const buf = new Uint8Array(await blob.arrayBuffer()); let s = '';
     for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
@@ -730,8 +766,7 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
     bad_secret: 'The secret code doesn’t match the Gmail script. Check it in Settings.',
     recipient_not_allowed: 'The Gmail script only sends to the help desk or to your UNLV address. To test with another address, add it to ALLOWED_TO in the script and deploy a new version.'
   };
-  $('autoSendBtn').onclick = async () => {
-    const b = $('autoSendBtn'); b.disabled = true; b.textContent = 'Sending…';
+  async function sendAuto() {
     try {
       const { subject, body } = compose();
       const inline = [];
@@ -749,18 +784,18 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
       clearTimeout(t);
       let out = null; try { out = await res.json(); } catch {}
       if (!out || !out.ok) throw new Error((out && SEND_ERRORS[out.error]) || (out && out.error ? 'Gmail script error: ' + out.error : 'The Gmail script didn’t answer properly (HTTP ' + res.status + '). Check that “Who has access” is Anyone and that the link ends in /exec.'));
-      const log = store.get('fm.log', []); log.unshift({ at: Date.now(), subject, to: settings.to, auto: true }); store.set('fm.log', log.slice(0, 50));
-      $('sendDlg').close(); resetAll();
-      toast('Sent ✓ to ' + settings.to, 4000);
+      return { ok: true };
     } catch (e) {
       const msg = e && e.name === 'AbortError' ? 'Sending timed out. Check your signal and try again.'
         : (e && e.message && !/Failed to fetch|NetworkError|Load failed/i.test(e.message)) ? e.message
         : 'Couldn’t reach the Gmail script. Check your signal, the Auto-send link in Settings, and that the deployment’s “Who has access” is Anyone.';
-      b.disabled = false; b.textContent = 'Try again';
-      $('manualBox').hidden = false;
-      $('autoErr').textContent = 'Not sent: ' + msg; $('autoErr').hidden = false;
-      toast('Not sent. Your report is still here.', 4000);
+      return { ok: false, msg };
     }
+  }
+  $('autoSendBtn').onclick = async () => {
+    const b = $('autoSendBtn'); b.disabled = true; b.textContent = 'Sending…';
+    const r = await sendAuto();
+    if (r.ok) finishSent(); else { showSendError(r.msg); toast('Still not sent. Your report is still here.', 4000); }
   };
   $('viewPdf').onclick = () => { if (pdfFile) window.open(URL.createObjectURL(pdfFile), '_blank'); };
   $('copyAddr').onclick = () => copyText(settings.to, 'Address copied.');
@@ -800,6 +835,7 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
     Object.entries(sMap).forEach(([id, k]) => settings[k] = $(id).value.trim());
     if (!settings.to) settings.to = DEFAULT_TO;
     store.set('fm.settings', settings);
+    setSendBtn();
     if (settings.hookUrl && !settings.hookKey) toast('Saved. Add the secret code too, or automatic sending stays off.', 4500);
     else if (settings.hookUrl && !autoReady()) toast('Saved, but that auto-send link doesn’t look like a Google Apps Script web app URL.', 5000);
     else toast(autoReady() ? 'Saved. Automatic sending is on.' : 'Settings saved.');
@@ -807,7 +843,7 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
   [$('sendDlg'), $('settingsDlg')].forEach(d => d.addEventListener('click', e => { if (e.target === d) d.close(); }));
 
   // ---------- boot ----------
-  loadDraft(); renderThumbs(); locate();
+  loadDraft(); renderThumbs(); setSendBtn(); locate();
   if (!settings.name) setTimeout(() => toast('Tip: add your name and phone in Settings (gear icon).', 3500), 1200);
 })();
 </script>
