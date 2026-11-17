@@ -461,11 +461,11 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
     const L = [];
     L.push('Hello Facilities Help Desk,', '', 'I would like to report the following issue:', '');
     L.push(subjectRaw.toUpperCase(), RULE);
+    L.push('', "WHAT'S WRONG", desc);
     L.push('', 'WHERE');
     if (bldg) L.push(bldg);
     if (loc) { L.push('Map: ' + mapsUrl()); L.push(`(${loc.lat.toFixed(6)}, ${loc.lng.toFixed(6)} · ${locSource()})`); }
     else if (!bldg) L.push('Location not pinned');
-    L.push('', "WHAT'S WRONG", desc);
     const att = [];
     if (snapFile) att.push('Map snapshot showing the pin');
     if (photos.length) att.push(photos.length + (photos.length === 1 ? ' photo' : ' photos'));
@@ -486,13 +486,13 @@ ol.steps { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4
     H += `<p style="margin:0 0 12px">Hello Facilities Help Desk,<br>I would like to report the following issue:</p>`;
     H += `<div style="background:${RED};color:#fff;padding:12px 16px;border-radius:6px 6px 0 0"><div style="font:bold 10px Arial,sans-serif;letter-spacing:1px">UNLV FACILITIES · FIELD REPORT ${esc(reportId)}</div><div style="font:bold 18px Arial,sans-serif;margin-top:2px">${esc(c.subjectRaw)}</div></div>`;
     H += `<div style="border:1px solid ${LINE};border-top:0;padding:4px 16px 16px;border-radius:0 0 6px 6px">`;
+    H += h3("What's wrong") + `<p style="margin:0;white-space:pre-wrap">${esc(c.desc)}</p>`;
     H += h3('Where');
     if (c.bldg) H += `<p style="margin:0 0 4px"><b>${esc(c.bldg)}</b></p>`;
     if (loc) {
       H += `<p style="margin:0 0 8px"><a href="${mapsUrl()}" style="color:${RED}">Open pin in Google Maps</a> <span style="color:${MUTED};font-size:12px">(${loc.lat.toFixed(6)}, ${loc.lng.toFixed(6)} · ${esc(locSource())})</span></p>`;
       if (lastSnap) H += `<a href="${mapsUrl()}"><img src="${useCid ? 'cid:map' : lastSnap.dataUrl}" width="600" alt="Map with pin" style="width:100%;max-width:600px;height:auto;border:1px solid ${LINE};border-radius:4px;display:block"></a>`;
     } else if (!c.bldg) H += `<p style="margin:0;color:${MUTED}">Location not pinned</p>`;
-    H += h3("What's wrong") + `<p style="margin:0;white-space:pre-wrap">${esc(c.desc)}</p>`;
     if (photos.length) {
       H += h3('Photos');
       H += photos.map((p, i) => `<img src="${useCid ? 'cid:photo' + (i + 1) : p.dataUrl}" alt="Photo ${i + 1}" width="290" style="width:290px;max-width:48%;height:auto;margin:0 6px 6px 0;border-radius:4px;vertical-align:top">`).join('');
